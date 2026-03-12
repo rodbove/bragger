@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { exec } from "node:child_process";
 import { config } from "../config.js";
 import { logger } from "../utils/logger.js";
 
@@ -6,15 +6,15 @@ export async function askClaude(systemPrompt: string, userMessage: string): Prom
   logger.info("Calling Claude CLI...");
 
   const result = await new Promise<string>((resolve, reject) => {
-    const args = [
-      "-p", userMessage,
-      "--model", config.claudeModel,
-      "--system-prompt", systemPrompt,
-      "--max-turns", "1",
-      "--output-format", "text",
-    ];
+    const systemArg = systemPrompt.replace(/'/g, "'\\''");
+    const userArg = userMessage.replace(/'/g, "'\\''");
 
-    execFile("claude", args, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+    const cmd = `claude -p '${userArg}' --model '${config.claudeModel}' --system-prompt '${systemArg}' --max-turns 1 --output-format text`;
+
+    exec(cmd, { maxBuffer: 1024 * 1024, timeout: 120_000, shell: "/bin/bash" }, (error, stdout, stderr) => {
+      if (stderr) {
+        logger.warn(`Claude CLI stderr: ${stderr}`);
+      }
       if (error) {
         reject(new Error(`Claude CLI failed: ${error.message}\n${stderr}`));
         return;
