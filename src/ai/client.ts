@@ -1,4 +1,4 @@
-import { exec } from "node:child_process";
+import { spawn } from "node:child_process";
 import { config } from "../config.js";
 import { logger } from "../utils/logger.js";
 
@@ -6,21 +6,42 @@ export async function askClaude(systemPrompt: string, userMessage: string): Prom
   logger.info("Calling Claude CLI...");
 
   const result = await new Promise<string>((resolve, reject) => {
-    const systemArg = systemPrompt.replace(/'/g, "'\\''");
-    const userArg = userMessage.replace(/'/g, "'\\''");
+    const args = [
+      "-p", "-",
+      "--model", config.claudeModel,
+      "--system-prompt", systemPrompt,
+      "--max-turns", "1",
+      "--output-format", "text",
+    ];
 
-    const cmd = `claude -p '${userArg}' --model '${config.claudeModel}' --system-prompt '${systemArg}' --max-turns 1 --output-format text`;
+    const proc = spawn("claude", args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 120_000,
+    });
 
-    exec(cmd, { maxBuffer: 1024 * 1024, timeout: 120_000, shell: "/bin/bash" }, (error, stdout, stderr) => {
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+    proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+    proc.on("error", (err) => {
+      reject(new Error(`Claude CLI failed to start: ${err.message}`));
+    });
+
+    proc.on("close", (code) => {
       if (stderr) {
         logger.warn(`Claude CLI stderr: ${stderr}`);
       }
-      if (error) {
-        reject(new Error(`Claude CLI failed: ${error.message}\n${stderr}`));
+      if (code !== 0) {
+        reject(new Error(`Claude CLI exited with code ${code}\n${stderr}`));
         return;
       }
       resolve(stdout.trim());
     });
+
+    proc.stdin.write(userMessage);
+    proc.stdin.end();
   });
 
   if (!result) {
