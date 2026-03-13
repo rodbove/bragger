@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, Context } from "grammy";
 import { questions } from "../conversation/questions.js";
 import {
   getConversationState,
@@ -6,13 +6,13 @@ import {
 } from "../db/repositories/conversation.js";
 import {
   getDailySummariesForRange,
+  getWeeklySummary,
   upsertWeeklySummary,
 } from "../db/repositories/summaries.js";
 import { getEntriesForDateRange } from "../db/repositories/entries.js";
 import { generateWeeklySummary } from "../ai/weekly-summary.js";
 import { todayStr, getMonday, getFriday } from "../utils/dates.js";
 import { logger } from "../utils/logger.js";
-import { Context } from "grammy";
 
 export function sendDailyPrompt(bot: Bot, chatId: number): void {
   const date = todayStr();
@@ -67,6 +67,13 @@ export async function triggerWeeklySummary(
     return;
   }
 
+  // Skip if already generated this week
+  const existing = getWeeklySummary(chatId, weekStart);
+  if (existing) {
+    logger.info("Weekly summary already exists, skipping");
+    return;
+  }
+
   try {
     await ctx.reply("It's Friday! Generating your weekly summary...");
     const summary = await generateWeeklySummary(
@@ -82,5 +89,45 @@ export async function triggerWeeklySummary(
   } catch (err) {
     logger.error("Failed to generate weekly summary", err);
     await ctx.reply("Failed to generate weekly summary. Your daily entries are safe.");
+  }
+}
+
+export async function sendWeeklySummary(bot: Bot, chatId: number): Promise<void> {
+  const now = new Date();
+  const weekStart = getMonday(now);
+  const weekEnd = getFriday(now);
+
+  // Skip if already generated (e.g. by Friday daily completion)
+  const existing = getWeeklySummary(chatId, weekStart);
+  if (existing) {
+    logger.info("Weekly summary already exists for this week, skipping cron generation");
+    return;
+  }
+
+  const dailySummaries = getDailySummariesForRange(chatId, weekStart, weekEnd);
+  const entries = getEntriesForDateRange(chatId, weekStart, weekEnd);
+  const adhocEntries = entries.filter((e) => e.source === "adhoc");
+
+  if (dailySummaries.length === 0 && entries.length === 0) {
+    logger.info("No data this week, skipping weekly summary");
+    return;
+  }
+
+  try {
+    const summary = await generateWeeklySummary(
+      weekStart,
+      weekEnd,
+      dailySummaries,
+      adhocEntries
+    );
+    upsertWeeklySummary(chatId, weekStart, weekEnd, summary);
+    await bot.api.sendMessage(
+      chatId,
+      `📊 *Weekly Summary — ${weekStart} to ${weekEnd}*\n\n${summary}`,
+      { parse_mode: "Markdown" }
+    );
+  } catch (err) {
+    logger.error("Failed to generate weekly summary (cron)", err);
+    await bot.api.sendMessage(chatId, "Failed to generate weekly summary. Your daily entries are safe.");
   }
 }

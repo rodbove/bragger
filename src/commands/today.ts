@@ -14,9 +14,9 @@ export async function todayCommand(ctx: Context): Promise<void> {
     return;
   }
 
-  const lines = entries.map((e, i) => {
+  const lines = entries.map((e) => {
     const source = e.source === "adhoc" ? "[ad-hoc]" : `[Q${(e.question_index ?? 0) + 1}]`;
-    return `${i + 1}. ${source} ${e.answer}`;
+    return `#${e.id} ${source} ${e.answer}`;
   });
 
   await ctx.reply(`📝 *Entries for ${date}*\n\n${lines.join("\n")}`, {

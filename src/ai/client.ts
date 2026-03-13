@@ -2,10 +2,15 @@ import { spawn } from "node:child_process";
 import { config } from "../config.js";
 import { logger } from "../utils/logger.js";
 
-export async function askClaude(systemPrompt: string, userMessage: string): Promise<string> {
-  logger.info("Calling Claude CLI...");
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 5_000;
 
-  const result = await new Promise<string>((resolve, reject) => {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function callClaude(systemPrompt: string, userMessage: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     const args = [
       "-p", "-",
       "--model", config.claudeModel,
@@ -43,11 +48,33 @@ export async function askClaude(systemPrompt: string, userMessage: string): Prom
     proc.stdin.write(userMessage);
     proc.stdin.end();
   });
+}
 
-  if (!result) {
-    throw new Error("No text response from Claude CLI");
+export async function askClaude(systemPrompt: string, userMessage: string): Promise<string> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      logger.info(`Calling Claude CLI (attempt ${attempt}/${MAX_RETRIES})...`);
+      const result = await callClaude(systemPrompt, userMessage);
+
+      if (!result) {
+        throw new Error("No text response from Claude CLI");
+      }
+
+      logger.info("Claude response received");
+      return result;
+    } catch (err) {
+      lastError = err as Error;
+      logger.warn(`Claude CLI attempt ${attempt} failed: ${lastError.message}`);
+
+      if (attempt < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * attempt;
+        logger.info(`Retrying in ${delay / 1000}s...`);
+        await sleep(delay);
+      }
+    }
   }
 
-  logger.info("Claude response received");
-  return result;
+  throw new Error(`Claude CLI failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
 }

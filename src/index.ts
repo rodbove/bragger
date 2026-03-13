@@ -8,6 +8,8 @@ import { weekCommand } from "./commands/week.js";
 import { monthCommand } from "./commands/month.js";
 import { exportCommand } from "./commands/export.js";
 import { skipCommand } from "./commands/skip.js";
+import { editCommand } from "./commands/edit.js";
+import { deleteCommand } from "./commands/delete.js";
 import { handleMessage } from "./conversation/handler.js";
 import { registerSchedulers } from "./scheduler/index.js";
 import { logger } from "./utils/logger.js";
@@ -24,6 +26,8 @@ bot.command("week", weekCommand);
 bot.command("month", monthCommand);
 bot.command("export", exportCommand);
 bot.command("skip", skipCommand);
+bot.command("edit", editCommand);
+bot.command("delete", deleteCommand);
 
 // Handle free-text messages (conversation flow)
 bot.on("message:text", handleMessage);

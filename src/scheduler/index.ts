@@ -1,24 +1,36 @@
 import cron from "node-cron";
 import { Bot } from "grammy";
 import { config } from "../config.js";
-import { isWeekday } from "../utils/dates.js";
-import { sendDailyPrompt, sendDailyReminder } from "./daily-prompt.js";
+import { sendDailyPrompt, sendDailyReminder, sendWeeklySummary } from "./daily-prompt.js";
 import { sendMonthlySummary } from "./monthly-summary.js";
 import { logger } from "../utils/logger.js";
 
 export function registerSchedulers(bot: Bot): void {
   const chatId = config.allowedUserId;
+  const { dailyPromptHour, dailyPromptMinute, dailyReminderMinutes } = config;
 
-  // 18:00 weekdays — daily prompt
-  cron.schedule("0 18 * * 1-5", () => {
+  const reminderMinute = dailyPromptMinute + dailyReminderMinutes;
+  const reminderHour = dailyPromptHour + Math.floor(reminderMinute / 60);
+  const reminderMin = reminderMinute % 60;
+
+  // Weekdays — daily prompt
+  cron.schedule(`${dailyPromptMinute} ${dailyPromptHour} * * 1-5`, () => {
     logger.info("Cron: daily prompt");
     sendDailyPrompt(bot, chatId);
   });
 
-  // 18:30 weekdays — reminder if unanswered
-  cron.schedule("30 18 * * 1-5", () => {
+  // Weekdays — reminder if unanswered
+  cron.schedule(`${reminderMin} ${reminderHour} * * 1-5`, () => {
     logger.info("Cron: daily reminder check");
     sendDailyReminder(bot, chatId);
+  });
+
+  // Friday 20:00 — weekly summary (fallback if not triggered by daily completion)
+  cron.schedule("0 20 * * 5", () => {
+    logger.info("Cron: weekly summary");
+    sendWeeklySummary(bot, chatId).catch((err) =>
+      logger.error("Weekly summary cron failed", err)
+    );
   });
 
   // 09:00 1st of month — monthly summary
@@ -29,5 +41,7 @@ export function registerSchedulers(bot: Bot): void {
     );
   });
 
-  logger.info("Schedulers registered (daily 18:00/18:30 weekdays, monthly 1st 09:00)");
+  logger.info(
+    `Schedulers registered (daily ${dailyPromptHour}:${String(dailyPromptMinute).padStart(2, "0")}/${reminderHour}:${String(reminderMin).padStart(2, "0")} weekdays, weekly Fri 20:00, monthly 1st 09:00)`
+  );
 }
